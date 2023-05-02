@@ -208,7 +208,7 @@ app.get('/members', (req,res) => {
 });
 
 
-
+//test
 app.use(express.static(__dirname + "/public"));
 
 app.get("*", (req,res) => {
