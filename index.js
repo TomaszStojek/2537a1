@@ -58,77 +58,29 @@ app.get('/', (req,res) => {
             <li><a href="/login">Login</a></li>
         </ul>
     `);
-    } else res.redirect('/members');
-});
-
-app.get('/nosql-injection', async (req,res) => {
-	var username = req.query.user;
-
-	if (!username) {
-		res.send(`<h3>no user provided - try /nosql-injection?user=name</h3> <h3>or /nosql-injection?user[$ne]=name</h3>`);
-		return;
-	}
-	console.log("user: "+username);
-
-	const schema = Joi.string().max(20).required();
-	const validationResult = schema.validate(username);
-
-	//If we didn't use Joi to validate and check for a valid URL parameter below
-	// we could run our userCollection.find and it would be possible to attack.
-	// A URL parameter of user[$ne]=name would get executed as a MongoDB command
-	// and may result in revealing information about all users or a successful
-	// login without knowing the correct password.
-	if (validationResult.error != null) {  
-	   console.log(validationResult.error);
-	   res.send("<h1 style='color:darkred;'>A NoSQL injection attack was detected!!</h1>");
-	   return;
-	}	
-
-	const result = await userCollection.find({username: username}).project({username: 1, password: 1, _id: 1}).toArray();
-
-	console.log(result);
-
-    res.send(`<h1>Hello ${username}</h1>`);
-});
-
-app.get('/about', (req,res) => {
-    var color = req.query.color;
-
-    res.send("<h1 style='color:"+color+";'>Tomek Stojek</h1>");
-});
-
-app.get('/contact', (req,res) => {
-    var missingEmail = req.query.missing;
-    var html = `
-        email address:
-        <form action='/submitEmail' method='post'>
-            <input name='email' type='text' placeholder='email'>
-            <button>Submit</button>
-        </form>
-    `;
-    if (missingEmail) {
-        html += "<br> email is required";
-    }
-    res.send(html);
-});
-
-app.post('/submitEmail', (req,res) => {
-    var email = req.body.email;
-    if (!email) {
-        res.redirect('/contact?missing=1');
-    }
+    } 
+    
     else {
-        res.send("Thanks for subscribing with your email: "+email);
+        var name = req.session.name;
+        var string = '<h1>Hello, ' + name  + '!</h1>';
+        res.send(string + `
+    
+    <ul>
+        <li><a href="/logout">Log out</a></li>
+        <li><a href="/members">members area</a></li>
+    </ul>
+`);
     }
 });
+
 
 
 app.get('/createUser', (req,res) => {
     var html = `
     create user
     <form action='/submitUser' method='post'>
-    <input name='username' type='text' placeholder='username'>
-    <input name='email' type='text' placeholder='email'>
+    <input name='username' type='text' placeholder='email'>
+    <input name='name' type='text' placeholder='name'>
     <input name='password' type='password' placeholder='password'>
     <button>Submit</button>
     </form>
@@ -142,7 +94,7 @@ app.get('/login', (req,res) => {
     var html = `
     log in
     <form action='/loggingin' method='post'>
-    <input name='username' type='text' placeholder='username'>
+    <input name='username' type='text' placeholder='email'>
     <input name='password' type='password' placeholder='password'>
     <button>Submit</button>
     </form>
@@ -157,26 +109,30 @@ app.get('/login', (req,res) => {
 app.post('/submitUser', async (req,res) => {
     var username = req.body.username;
     var password = req.body.password;
+    var name = req.body.name;
 
 	const schema = Joi.object(
 		{
-			username: Joi.string().alphanum().max(20).required(),
+            username: Joi.string().email().required(),
+			name: Joi.string().alphanum().max(20).required(),
 			password: Joi.string().max(20).required()
 		});
 	
-	const validationResult = schema.validate({username, password});
+	const validationResult = schema.validate({username, name, password});
 	if (validationResult.error != null) {
 	   console.log(validationResult.error);
-	   res.redirect("/createUser");
+       
+	   res.send('<h1>' + validationResult.error + '</h1>' + '<br><a href="/createUser">try again</a>');
 	   return;
    }
 
     var hashedPassword = await bcrypt.hash(password, saltRounds);
 	
-	await userCollection.insertOne({username: username, password: hashedPassword});
+	await userCollection.insertOne({username: username, password: hashedPassword, name: name});
 	console.log("Inserted user");
-
-    var html = "successfully created user";
+    
+    req.session.name = name;
+    req.session.authenticated = true;
     res.redirect('/members');
 });
 
@@ -192,7 +148,7 @@ app.post('/loggingin', async (req,res) => {
 	   return;
 	}
 
-	const result = await userCollection.find({username: username}).project({username: 1, password: 1, _id: 1}).toArray();
+	const result = await userCollection.find({username: username}).project({name: 1, username: 1, password: 1, _id: 1}).toArray();
 
 	console.log(result);
 	if (result.length != 1) {
@@ -204,6 +160,7 @@ app.post('/loggingin', async (req,res) => {
 		console.log("correct password");
 		req.session.authenticated = true;
 		req.session.username = username;
+        req.session.name = result[0].name;
 		req.session.cookie.maxAge = expireTime;
 
 		res.redirect('/members');
@@ -230,13 +187,20 @@ app.get('/members', (req,res) => {
         
 
     } else if (type == 1) {
-        res.send("Beach: <img src='/beach.gif' style='width:250px;'>" + logout);
+        let name = req.session.name;
+        let string = '<h1>Hello, ' + name  + '!</h1>';
+        
+        res.send(string + "Beach: <img src='/beach.gif' style='width:250px;'>" + logout);
     }
     else if (type == 2) {
-        res.send("Indoor: <img src='/indoor.gif' style='width:250px;'>" + logout);
+        let name = req.session.name;
+        let string = '<h1>Hello, ' + name  + '!</h1>';
+        res.send(string + "Indoor: <img src='/indoor.gif' style='width:250px;'>" + logout);
     }
     else if (type == 3) {
-        res.send("Grass: <img src='/grass.jpg' style='width:250px;'>" + logout);
+        let name = req.session.name;
+        let string = '<h1>Hello, ' + name  + '!</h1>';
+        res.send(string + "Grass: <img src='/grass.jpg' style='width:250px;'>" + logout);
     }
     else {
         res.send("Invalid type id: "+type);
