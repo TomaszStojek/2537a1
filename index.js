@@ -13,6 +13,7 @@ const port = process.env.PORT || 3000;
 const app = express();
 
 const Joi = require("joi");
+const { error } = require("selenium-webdriver");
 
 
 const expireTime = 1 * 60 * 60 * 1000; //expires after one hour
@@ -31,6 +32,8 @@ var {database} = include('databaseConnection');
 
 const userCollection = database.db(mongodb_database).collection('users');
 
+app.set('view engine', 'ejs');
+
 app.use(express.urlencoded({extended: false}));
 
 var mongoStore = MongoStore.create({
@@ -48,62 +51,67 @@ app.use(session({
 }
 ));
 
-app.get('/', (req,res) => {
-    if (!req.session.authenticated) {
-       
-    res.send(`
-        <h1>Welcome!</h1>
-        <ul>
-            <li><a href="/createUser">Create User</a></li>
-            <li><a href="/login">Login</a></li>
-        </ul>
-    `);
-    } 
-    
+function getRandNum1to3() {
+    return Math.floor(Math.random() * 3) + 1;
+  }
+
+  function isValidSession(req) {
+    if (req.session.authenticated) {
+        return true;
+    }
+    return false;
+}
+
+function sessionValidation(req,res,next) {
+    if (isValidSession(req)) {
+        next();
+    }
     else {
+        res.redirect('/login');
+    }
+}
+
+function isAdmin(req) {
+    if (req.session.user_type == 'admin') {
+        return true;
+    }
+    return false;
+}
+
+function adminAuthorization(req, res, next) {
+    if (!isAdmin(req)) {
+        res.status(403);
+        res.render("errorMessage", {error: "Not Authorized"});
+        return;
+    }
+    else {
+        next();
+    }
+}
+
+
+app.get('/admin', sessionValidation, adminAuthorization, async (req,res) => {
+    const result = await userCollection.find().project({username: 1,user_type: 1, _id: 1}).toArray();
+ 
+    res.render("admin", {users: result});
+});
+
+app.get('/', (req, res) => {
+    if (!req.session.authenticated) {
+        res.render('index', { authenticated: false });
+    } else {
         var name = req.session.name;
-        var string = '<h1>Hello, ' + name  + '!</h1>';
-        res.send(string + `
-    
-    <ul>
-        <li><a href="/logout">Log out</a></li>
-        <li><a href="/members">members area</a></li>
-    </ul>
-`);
+        res.render('index', { authenticated: true, name: name });
     }
 });
 
-
-
 app.get('/createUser', (req,res) => {
-    var html = `
-    create user
-    <form action='/submitUser' method='post'>
-    <input name='username' type='text' placeholder='email'>
-    <input name='name' type='text' placeholder='name'>
-    <input name='password' type='password' placeholder='password'>
-    <button>Submit</button>
-    </form>
-    `;
-    res.send(html);
+   res.render("createUser");
 });
-
 
 app.get('/login', (req,res) => {
     var wrongPasswordorUsername = req.query.wrong;
-    var html = `
-    log in
-    <form action='/loggingin' method='post'>
-    <input name='username' type='text' placeholder='email'>
-    <input name='password' type='password' placeholder='password'>
-    <button>Submit</button>
-    </form>
-    `;
-    if (wrongPasswordorUsername) {
-        html += "<br> wrong password or username";
-    }
-    res.send(html);
-    res.send(html);
+    res.render("login", {wrongPasswordorUsername: wrongPasswordorUsername});
 });
 
 app.post('/submitUser', async (req,res) => {
@@ -121,91 +129,115 @@ app.post('/submitUser', async (req,res) => {
 	const validationResult = schema.validate({username, name, password});
 	if (validationResult.error != null) {
 	   console.log(validationResult.error);
+       let error = validationResult.error;
+         res.render('tryAgain', {error: error}
        
-	   res.send('<h1>' + validationResult.error + '</h1>' + '<br><a href="/createUser">try again</a>');
+	   );
 	   return;
    }
 
     var hashedPassword = await bcrypt.hash(password, saltRounds);
 	
-	await userCollection.insertOne({username: username, password: hashedPassword, name: name});
+    await userCollection.insertOne({username: username, password: hashedPassword, user_type: "user"});
 	console.log("Inserted user");
     
     req.session.name = name;
     req.session.authenticated = true;
-    res.redirect('/members');
+    res.render('members', { type: getRandNum1to3() });
 });
 
-app.post('/loggingin', async (req,res) => {
+app.post('/loggingin', async (req, res) => {
     var username = req.body.username;
     var password = req.body.password;
 
-	const schema = Joi.string().max(20).required();
-	const validationResult = schema.validate(username);
-	if (validationResult.error != null) {
-	   console.log(validationResult.error);
-	   res.redirect("/login");
-	   return;
-	}
+    const schema = Joi.string().max(20).required();
+    const validationResult = schema.validate(username);
+    if (validationResult.error != null) {
+        console.log(validationResult.error);
+        res.render('login', { wrongPasswordorUsername: true });
+        return;
+    }
 
-	const result = await userCollection.find({username: username}).project({name: 1, username: 1, password: 1, _id: 1}).toArray();
+    const result = await userCollection.find({username: username}).project({username: 1, password: 1, user_type: 1, _id: 1}).toArray();
 
-	console.log(result);
-	if (result.length != 1) {
-		console.log("user not found");
-		res.redirect("/login");
-		return;
-	}
-	if (await bcrypt.compare(password, result[0].password)) {
-		console.log("correct password");
-		req.session.authenticated = true;
-		req.session.username = username;
+    console.log(result);
+    if (result.length != 1) {
+        console.log("user not found");
+        res.render('login', { wrongPasswordorUsername: true});
+        return;
+    }
+    if (await bcrypt.compare(password, result[0].password)) {
+        console.log("correct password");
+        req.session.authenticated = true;
+        req.session.username = username;
+        req.session.user_type = result[0].user_type;
         req.session.name = result[0].name;
-		req.session.cookie.maxAge = expireTime;
+        req.session.cookie.maxAge = expireTime;
 
-		res.redirect('/members');
-		return;
-	}
-	else {
-
-		console.log("incorrect password");
-		res.redirect("/login?wrong=1");
-		return;
-	}
+        res.render('members', { type: getRandNum1to3() });
+        return;
+    } else {
+        console.log("incorrect password");
+        res.render('login', { wrongPasswordorUsername: true });
+        return;
+    }
 });
+
 
 app.get('/logout', (req,res) => {
 	req.session.destroy();
-    res.redirect('/');
+    res.render("index" , {authenticated: false});
 });
 
 app.get('/members', (req,res) => {
-    let type = Math.floor(Math.random() * 3) + 1;
-    let logout = '<a href="/logout">Log Out</a>';
     if (!req.session.authenticated) {
-        res.redirect('/');
-        
-
-    } else if (type == 1) {
-        let name = req.session.name;
-        let string = '<h1>Hello, ' + name  + '!</h1>';
-        
-        res.send(string + "Beach: <img src='/beach.gif' style='width:250px;'>" + logout);
+        res.render('index', { authenticated: false });
     }
-    else if (type == 2) {
-        let name = req.session.name;
-        let string = '<h1>Hello, ' + name  + '!</h1>';
-        res.send(string + "Indoor: <img src='/indoor.gif' style='width:250px;'>" + logout);
-    }
-    else if (type == 3) {
-        let name = req.session.name;
-        let string = '<h1>Hello, ' + name  + '!</h1>';
-        res.send(string + "Grass: <img src='/grass.jpg' style='width:250px;'>" + logout);
-    }
-    else {
-        res.send("Invalid type id: "+type);
-    }
+else {
+res.render("members", {type: getRandNum1to3()});
+}
 });
+
+app.post('/updateUser', async (req, res) => {
+  const username = req.body.username;
+  const userType = req.body.userType;
+  const action = req.body.action;
+
+  try {
+    const user = await userCollection.findOne({ username });
+
+    if (!user) {
+      // User not found
+      res.status(404);
+      res.render('errorMessage', { error: 'User not found' });
+      return;
+    }
+
+    if (action === 'promote') {
+      // Promote the user to admin
+      await userCollection.updateOne(
+        { username },
+        { $set: { user_type: 'admin' } }
+      );
+    } else if (action === 'demote') {
+      // Demote the user to a regular user
+      await userCollection.updateOne(
+        { username },
+        { $set: { user_type: 'user' } }
+      );
+    }
+
+    res.redirect('/admin');
+  } catch (error) {
+    console.error(error);
+    res.status(500).render('errorMessage', { error: 'Internal Server Error' });
+  }
+});
+
+  
+  
+  
+  
 
 
 //test
@@ -213,7 +245,7 @@ app.use(express.static(__dirname + "/public"));
 
 app.get("*", (req,res) => {
 	res.status(404);
-	res.send("Page not found - 404");
+	res.render("404");
 })
 
 app.listen(port, () => {

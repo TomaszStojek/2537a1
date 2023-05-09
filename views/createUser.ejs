@@ -1,0 +1,23 @@
+<%-include("templates/header")%>
+
+<div class="container">
+  <h1 class="mt-4">Create User</h1>
+
+  <form action="/submitUser" method="post">
+    <div class="mb-3">
+      <label for="username" class="form-label">Email</label>
+      <input name="username" type="text" class="form-control" id="username" placeholder="Email">
+    </div>
+    <div class="mb-3">
+      <label for="name" class="form-label">Name</label>
+      <input name="name" type="text" class="form-control" id="name" placeholder="Name">
+    </div>
+    <div class="mb-3">
+      <label for="password" class="form-label">Password</label>
+      <input name="password" type="password" class="form-control" id="password" placeholder="Password">
+    </div>
+    <button type="submit" class="btn btn-primary">Submit</button>
+  </form>
+</div>
+
+<%-include("templates/footer")%>

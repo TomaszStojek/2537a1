@@ -1,0 +1,21 @@
+<!-- user.ejs -->
+<li>
+    <%= user.username %> (User Type: <%= user.user_type %>)
+    <form style="display: inline-block;" action="/updateUser" method="post">
+      <input type="hidden" name="userId" value="<%= user._id %>">
+      <input type="hidden" name="userType" value="user">
+      <input type="hidden" name="username" value="<%= user.username %>">
+      <button type="submit" name="action" value="promote" class="btn btn-danger">Promote to Admin</button>
+    </form>
+    <form style="display: inline-block;" action="/updateUser" method="post">
+      <input type="hidden" name="userId" value="<%= user._id %>">
+      <input type="hidden" name="userType" value="admin">
+      <input type="hidden" name="username" value="<%= user.username %>">
+      <button type="submit" name="action" value="demote" class="btn btn-primary">Demote to User</button>
+    </form>
+  </li>
+  
+  
+  
+  
+  
